@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -37,11 +38,13 @@ import (
 )
 
 type mqSink struct {
-	mqProducer mqProducer.Producer
-	dispatcher dispatcher.Dispatcher
-	newEncoder func() codec.EventBatchEncoder
-	filter     *filter.Filter
-	protocol   codec.Protocol
+	mqProducers   map[string]mqProducer.Producer
+	mqProducerMu  sync.Mutex
+	newMQProducer func(topic string) (mqProducer.Producer, error)
+	dispatcher    dispatcher.Dispatcher
+	newEncoder    func() codec.EventBatchEncoder
+	filter        *filter.Filter
+	protocol      codec.Protocol
 
 	partitionNum   int32
 	partitionInput []chan struct {
@@ -52,15 +55,14 @@ type mqSink struct {
 	checkpointTs        uint64
 	resolvedNotifier    *notify.Notifier
 	resolvedReceiver    *notify.Receiver
-
+	topicFmt            string
 	statistics *Statistics
 }
 
 func newMqSink(
-	ctx context.Context, credential *security.Credential, mqProducer mqProducer.Producer,
-	filter *filter.Filter, config *config.ReplicaConfig, opts map[string]string, errCh chan error,
+	ctx context.Context, credential *security.Credential, newMQProducer func(topic string) (mqProducer.Producer, error), partitionNum int32,
+	filter *filter.Filter, config *config.ReplicaConfig, opts map[string]string, errCh chan error, topicFmt string,
 ) (*mqSink, error) {
-	partitionNum := mqProducer.GetPartitionNum()
 	partitionInput := make([]chan struct {
 		row        *model.RowChangedEvent
 		resolvedTs uint64
@@ -71,7 +73,7 @@ func newMqSink(
 			resolvedTs uint64
 		}, 12800)
 	}
-	d, err := dispatcher.NewDispatcher(config, mqProducer.GetPartitionNum())
+	d, err := dispatcher.NewDispatcher(config, partitionNum)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -103,11 +105,12 @@ func newMqSink(
 	}
 
 	k := &mqSink{
-		mqProducer: mqProducer,
-		dispatcher: d,
-		newEncoder: newEncoder,
-		filter:     filter,
-		protocol:   protocol,
+		mqProducers:   make(map[string]mqProducer.Producer),
+		newMQProducer: newMQProducer,
+		dispatcher:    d,
+		newEncoder:    newEncoder,
+		filter:        filter,
+		protocol:      protocol,
 
 		partitionNum:        partitionNum,
 		partitionInput:      partitionInput,
@@ -183,9 +186,11 @@ flushLoop:
 			break flushLoop
 		}
 	}
-	err := k.mqProducer.Flush(ctx)
-	if err != nil {
-		return errors.Trace(err)
+	for _, producer := range k.mqProducers {
+		err := producer.Flush(ctx)
+		if err != nil {
+			return errors.Trace(err)
+		}
 	}
 	k.checkpointTs = resolvedTs
 	k.statistics.PrintStatus()
@@ -202,11 +207,23 @@ func (k *mqSink) EmitCheckpointTs(ctx context.Context, ts uint64) error {
 		return nil
 	}
 	key, value := encoder.Build()
-	err = k.writeToProducer(ctx, key, value, op, -1)
-	if err != nil {
+
+	k.mqProducerMu.Lock()
+	topics := make([]string, 0, len(k.mqProducers))
+	for topic := range k.mqProducers {
+		topics = append(topics, topic)
+	}
+	k.mqProducerMu.Unlock()
+
+	for _, topic := range topics {
+		err = k.writeToProducer(ctx, key, value, op, -1, topic)
+		if err != nil {
+			return errors.Trace(err)
+		}
 		return errors.Trace(err)
 	}
-	return errors.Trace(err)
+
+	return nil
 }
 
 func (k *mqSink) EmitDDLEvent(ctx context.Context, ddl *model.DDLEvent) error {
@@ -231,7 +248,7 @@ func (k *mqSink) EmitDDLEvent(ctx context.Context, ddl *model.DDLEvent) error {
 
 	key, value := encoder.Build()
 	log.Info("emit ddl event", zap.ByteString("key", key), zap.ByteString("value", value))
-	err = k.writeToProducer(ctx, key, value, op, -1)
+	err = k.writeToProducer(ctx, key, value, op, -1, k.dispatchTopic(ddl.TableInfo.Schema, ddl.TableInfo.Table))
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -245,9 +262,11 @@ func (k *mqSink) Initialize(ctx context.Context, tableInfo []*model.SimpleTableI
 }
 
 func (k *mqSink) Close() error {
-	err := k.mqProducer.Close()
-	if err != nil {
-		return errors.Trace(err)
+	for _, producer := range k.mqProducers {
+		err := producer.Close()
+		if err != nil {
+			return errors.Trace(err)
+		}
 	}
 	return nil
 }
@@ -331,22 +350,36 @@ func (k *mqSink) runWorker(ctx context.Context, partition int32) error {
 	}
 }
 
-func (k *mqSink) writeToProducer(ctx context.Context, key []byte, value []byte, op codec.EncoderResult, partition int32) error {
+func (k *mqSink) writeToProducer(ctx context.Context, key []byte, value []byte, op codec.EncoderResult, partition int32, topic string) error {
+	k.mqProducerMu.Lock()
+	p, ok := k.mqProducers[topic]
+	if !ok {
+		log.Info("MQSink: producer not found for topic, will create one.", zap.String("topic", topic))
+		newProducer, err := k.newMQProducer(topic)
+		if err != nil {
+			k.mqProducerMu.Unlock()
+			return errors.Trace(err)
+		}
+		k.mqProducers[topic] = newProducer
+		p = newProducer
+	}
+	k.mqProducerMu.Unlock()
+
 	switch op {
 	case codec.EncoderNeedAsyncWrite:
 		if partition >= 0 {
-			return k.mqProducer.SendMessage(ctx, key, value, partition)
+			return p.SendMessage(ctx, key, value, partition)
 		}
 		return errors.New("Async broadcasts not supported")
 	case codec.EncoderNeedSyncWrite:
 		if partition >= 0 {
-			err := k.mqProducer.SendMessage(ctx, key, value, partition)
+			err := p.SendMessage(ctx, key, value, partition)
 			if err != nil {
 				return err
 			}
-			return k.mqProducer.Flush(ctx)
+			return p.Flush(ctx)
 		}
-		return k.mqProducer.SyncBroadcastMessage(ctx, key, value)
+		return p.SyncBroadcastMessage(ctx, key, value)
 	}
 
 	log.Warn("writeToProducer called with no-op",
@@ -354,6 +387,14 @@ func (k *mqSink) writeToProducer(ctx context.Context, key []byte, value []byte, 
 		zap.ByteString("value", value),
 		zap.Int32("partition", partition))
 	return nil
+}
+
+
+
+func (k *mqSink) dispatchTopic(schema string, table string) string {
+	ret := strings.ReplaceAll(k.topicFmt, "${db}", schema)
+	ret = strings.ReplaceAll(ret, "${table}", table)
+	return ret
 }
 
 func newKafkaSaramaSink(ctx context.Context, sinkURI *url.URL, filter *filter.Filter, replicaConfig *config.ReplicaConfig, opts map[string]string, errCh chan error) (*mqSink, error) {
@@ -422,14 +463,15 @@ func newKafkaSaramaSink(ctx context.Context, sinkURI *url.URL, filter *filter.Fi
 		config.Credential.KeyPath = s
 	}
 
-	topic := strings.TrimFunc(sinkURI.Path, func(r rune) bool {
+	topicFmt := strings.TrimFunc(sinkURI.Path, func(r rune) bool {
 		return r == '/'
 	})
-	producer, err := mqProducer.NewKafkaSaramaProducer(ctx, sinkURI.Host, topic, config, errCh)
-	if err != nil {
-		return nil, errors.Trace(err)
+
+	newMQProducer := func (topic string) (mqProducer.Producer, error) {
+		return mqProducer.NewKafkaSaramaProducer(ctx, sinkURI.Host, topic, config, errCh)
 	}
-	sink, err := newMqSink(ctx, config.Credential, producer, filter, replicaConfig, opts, errCh)
+
+	sink, err := newMqSink(ctx, config.Credential, newMQProducer, config.PartitionNum, filter, replicaConfig, opts, errCh, topicFmt)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -437,10 +479,6 @@ func newKafkaSaramaSink(ctx context.Context, sinkURI *url.URL, filter *filter.Fi
 }
 
 func newPulsarSink(ctx context.Context, sinkURI *url.URL, filter *filter.Filter, replicaConfig *config.ReplicaConfig, opts map[string]string, errCh chan error) (*mqSink, error) {
-	producer, err := pulsar.NewProducer(sinkURI, errCh)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
 	s := sinkURI.Query().Get("protocol")
 	if s != "" {
 		replicaConfig.Sink.Protocol = s
@@ -448,7 +486,12 @@ func newPulsarSink(ctx context.Context, sinkURI *url.URL, filter *filter.Filter,
 	// For now, it's a place holder. Avro format have to make connection to Schema Registery,
 	// and it may needs credential.
 	credential := &security.Credential{}
-	sink, err := newMqSink(ctx, credential, producer, filter, replicaConfig, opts, errCh)
+
+	newMQProducer := func (topic string) (mqProducer.Producer, error) {
+		return pulsar.NewProducer(sinkURI, errCh)
+	}
+
+	sink, err := newMqSink(ctx, credential, newMQProducer, 0, filter, replicaConfig, opts, errCh, "_")
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

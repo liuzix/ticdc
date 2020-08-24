@@ -103,6 +103,7 @@ type processor struct {
 	markTableIDs      map[int64]struct{}
 	statusModRevision int64
 
+	globalResolvedNotifier      *notify.Notifier
 	sinkEmittedResolvedNotifier *notify.Notifier
 	sinkEmittedResolvedReceiver *notify.Receiver
 	localResolvedNotifier       *notify.Notifier
@@ -186,6 +187,7 @@ func newProcessor(
 	sinkEmittedResolvedNotifier := new(notify.Notifier)
 	localResolvedNotifier := new(notify.Notifier)
 	localCheckpointTsNotifier := new(notify.Notifier)
+	globalResolvedNotifier := new(notify.Notifier)
 	p := &processor{
 		id:            uuid.New().String(),
 		limitter:      limitter,
@@ -205,6 +207,8 @@ func newProcessor(
 
 		position: &model.TaskPosition{CheckPointTs: checkpointTs},
 		output:   make(chan *model.PolymorphicEvent, defaultOutputChanSize),
+
+		globalResolvedNotifier: globalResolvedNotifier,
 
 		sinkEmittedResolvedNotifier: sinkEmittedResolvedNotifier,
 		sinkEmittedResolvedReceiver: sinkEmittedResolvedNotifier.NewReceiver(50 * time.Millisecond),
@@ -626,6 +630,7 @@ func (p *processor) globalStatusWorker(ctx context.Context) error {
 		if lastResolvedTs < changefeedStatus.ResolvedTs {
 			lastResolvedTs = changefeedStatus.ResolvedTs
 			atomic.StoreUint64(&p.globalResolvedTs, lastResolvedTs)
+			p.globalResolvedNotifier.Notify()
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -745,6 +750,9 @@ func (p *processor) syncResolved(ctx context.Context) error {
 			}
 			rows = append(rows, ev.Row)
 		}
+		failpoint.Inject("processorPanic", func() {
+			panic("processorPanic failpoint")
+		})
 		err := p.sink.EmitRowChangedEvents(ctx, rows...)
 		if err != nil {
 			return errors.Trace(err)
@@ -906,6 +914,7 @@ func (p *processor) addTable(ctx context.Context, tableID int64, replicaInfo *mo
 		}()
 		go func() {
 			resolvedTsGauge := tableResolvedTsGauge.WithLabelValues(p.changefeedID, p.captureInfo.AdvertiseAddr, table.name)
+			globalResolvedReceiver := p.globalResolvedNotifier.NewReceiver(100 * time.Millisecond)
 			var lastResolvedTs uint64
 			for {
 				select {
@@ -937,6 +946,23 @@ func (p *processor) addTable(ctx context.Context, tableID int64, replicaInfo *mo
 						lastResolvedTs = pEvent.CRTs
 						p.localResolvedNotifier.Notify()
 						resolvedTsGauge.Set(float64(oracle.ExtractPhysical(pEvent.CRTs)))
+
+						for {
+							if gTs := atomic.LoadUint64(&p.globalResolvedTs); gTs > lastResolvedTs {
+								log.Warn("Invariant globalResolvedTs <= tableResolvedTs violated, waiting for globalStatus update",
+									zap.Uint64("globalResolvedTs", gTs), zap.Uint64("tableResolvedTs", lastResolvedTs))
+								select {
+								case <-ctx.Done():
+									if errors.Cause(ctx.Err()) != context.Canceled {
+										p.errCh <- ctx.Err()
+									}
+									return
+								case <-globalResolvedReceiver.C:
+								}
+							} else {
+								break
+							}
+						}
 						continue
 					}
 					sinkResolvedTs := atomic.LoadUint64(&p.sinkEmittedResolvedTs)

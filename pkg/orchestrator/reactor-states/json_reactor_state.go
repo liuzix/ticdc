@@ -11,10 +11,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package orchestrator
+package reactor_states
 
 import (
 	"encoding/json"
+	"github.com/pingcap/ticdc/pkg/orchestrator"
+	"github.com/pingcap/ticdc/pkg/orchestrator/util"
 	"reflect"
 
 	jsonpatch "github.com/evanphx/json-patch/v5"
@@ -53,19 +55,19 @@ func NewJSONReactorState(key string, data interface{}) (*JSONReactorState, error
 }
 
 // Update implements the ReactorState interface.
-func (s *JSONReactorState) Update(key []byte, value []byte) {
-	if string(key) != s.key {
+func (s *JSONReactorState) Update(key util.EtcdRelKey, value []byte) {
+	if key.String() != s.key {
 		return
 	}
 
 	err := json.Unmarshal(value, s.jsonData)
 	if err != nil {
 		log.Panic("Cannot parse JSON state",
-			zap.ByteString("key", key),
+			zap.ByteString("key", key.Bytes()),
 			zap.ByteString("value", value))
 	}
 
-	log.Debug("Update", zap.ByteString("key", key), zap.ByteString("value", value))
+	log.Debug("Update", zap.ByteString("key", key.Bytes()), zap.ByteString("value", value))
 
 	deepCopy(s.jsonData, s.modifiedJSONData)
 	s.isUpdatedByReactor = true
@@ -73,7 +75,7 @@ func (s *JSONReactorState) Update(key []byte, value []byte) {
 
 // GetPatches implements the ReactorState interface.
 // The patches are generated and applied according to the standard RFC6902 JSON patches.
-func (s *JSONReactorState) GetPatches() []*DataPatch {
+func (s *JSONReactorState) GetPatches() []*orchestrator.DataPatch {
 	oldBytes, err := json.Marshal(s.jsonData)
 	if err != nil {
 		log.Panic("Cannot marshal JSON state", zap.String("key", s.key), zap.Reflect("json", s.jsonData))
@@ -89,8 +91,8 @@ func (s *JSONReactorState) GetPatches() []*DataPatch {
 		log.Panic("Cannot generate JSON patch", zap.ByteString("old", oldBytes), zap.ByteString("new", newBytes))
 	}
 
-	dataPatch := &DataPatch{
-		Key: []byte(s.key),
+	dataPatch := &orchestrator.DataPatch{
+		Key: util.NewEtcdRelKey(s.key),
 		Fun: func(old []byte) ([]byte, error) {
 			ret, err := jsonpatch.MergePatch(old, patchBytes)
 			if err != nil {
@@ -101,7 +103,7 @@ func (s *JSONReactorState) GetPatches() []*DataPatch {
 		},
 	}
 
-	return []*DataPatch{dataPatch}
+	return []*orchestrator.DataPatch{dataPatch}
 }
 
 // Inner returns a copy of the snapshot of the state, which can safely be updated by the reactor within a tick.
@@ -109,6 +111,7 @@ func (s *JSONReactorState) Inner() interface{} {
 	return s.modifiedJSONData
 }
 
+// TODO optimize for performance
 func deepCopy(a, b interface{}) {
 	byt, _ := json.Marshal(a)
 	_ = json.Unmarshal(byt, b)

@@ -11,6 +11,7 @@ require (
 	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
 	github.com/coreos/go-semver v0.3.0
 	github.com/davecgh/go-spew v1.1.1
+	github.com/dghubble/trie v0.0.0-20201011220304-ed6d6b8add55
 	github.com/edwingeng/deque v0.0.0-20191220032131-8596380dee17
 	github.com/evanphx/json-patch/v5 v5.1.0
 	github.com/go-sql-driver/mysql v1.5.0

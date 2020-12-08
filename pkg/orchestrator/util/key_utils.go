@@ -97,6 +97,10 @@ func (rkey *EtcdRelKey) Tail() EtcdRelKey {
 	return rkey.inner.Tail()
 }
 
+func (key *EtcdRelKey) RemovePrefix(prefix *EtcdPrefix) EtcdRelKey {
+	return EtcdRelKey{EtcdKey{strings.TrimPrefix(key.inner.keyStr, prefix.prefixStr)}}
+}
+
 type EtcdPrefix struct {
 	prefixStr string
 }
@@ -136,7 +140,7 @@ func (prefix *EtcdPrefix) FullKey(key *EtcdRelKey) EtcdKey {
 }
 
 type EtcdRelPrefix struct {
-	inner EtcdPrefix
+	EtcdPrefix
 }
 
 // NormalizePrefix adds a slash to the beginning of `prefix` if none is present,

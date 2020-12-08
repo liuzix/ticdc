@@ -14,33 +14,37 @@
 package reactor_states
 
 import (
-	"github.com/dghubble/trie"
 	"github.com/pingcap/ticdc/pkg/orchestrator"
 	"github.com/pingcap/ticdc/pkg/orchestrator/util"
+	"strings"
 )
 
 type ReactorState = orchestrator.ReactorState
 
 type ReactorStateRouter interface {
-	RouteForPut(key util.EtcdKey) (ReactorState, util.EtcdRelKey, error)
-	RouteForDelete(key util.EtcdKey) (ReactorState, util.EtcdRelKey, error)
+	RouteForPut(key util.EtcdRelKey) (ReactorState, util.EtcdRelKey, error)
+	RouteForDelete(key util.EtcdRelKey) (ReactorState, util.EtcdRelKey, error)
 }
 
 type ReactorStateStaticRouter struct {
-	routes *trie.PathTrie
+	routes map[util.EtcdRelPrefix]ReactorState
 }
 
 func NewReactorStateStaticRouter() *ReactorStateStaticRouter {
 	return &ReactorStateStaticRouter{
-		routes: trie.NewPathTrie(),
+		routes: make(map[util.EtcdRelPrefix]ReactorState),
 	}
 }
 
-func (r *ReactorStateStaticRouter) RouteForPut(key util.EtcdKey) (ReactorState, util.EtcdRelKey, error) {
-	
+func (r *ReactorStateStaticRouter) RouteForPut(key util.EtcdRelKey) (ReactorState, util.EtcdRelKey, error) {
+	for prefix, rstate := range r.routes {
+		if strings.HasPrefix(key.String(), prefix.String()) {
+			return rstate,
+		}
+	}
 }
 
-func (r *ReactorStateStaticRouter) RouteForDelete(key util.EtcdKey) (ReactorState, util.EtcdRelKey, error) {
+func (r *ReactorStateStaticRouter) RouteForDelete(key util.EtcdRelKey) (ReactorState, util.EtcdRelKey, error) {
 	panic("implement me")
 }
 

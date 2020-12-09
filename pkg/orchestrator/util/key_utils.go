@@ -97,7 +97,7 @@ func (rkey *EtcdRelKey) Tail() EtcdRelKey {
 	return rkey.inner.Tail()
 }
 
-func (key *EtcdRelKey) RemovePrefix(prefix *EtcdPrefix) EtcdRelKey {
+func (key *EtcdRelKey) RemovePrefix(prefix *EtcdRelPrefix) EtcdRelKey {
 	return EtcdRelKey{EtcdKey{strings.TrimPrefix(key.inner.keyStr, prefix.prefixStr)}}
 }
 

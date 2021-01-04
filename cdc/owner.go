@@ -697,6 +697,7 @@ func (o *Owner) flushChangeFeedInfos(ctx context.Context) error {
 		}
 	}
 	if time.Since(o.gcSafepointLastUpdate) > GCSafepointUpdateInterval {
+		log.Info("Updating gc safepoint", zap.Uint64("safepoint", minCheckpointTs), zap.Int64("ttl", o.gcTTL))
 		_, err := o.pdClient.UpdateServiceGCSafePoint(ctx, CDCServiceSafePointID, o.gcTTL, minCheckpointTs)
 		if err != nil {
 			log.Warn("failed to update service safe point", zap.Error(err))

@@ -15,6 +15,7 @@ package regionspan
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -293,7 +294,7 @@ func (l *RegionRangeLock) LockRange(startKey, endKey []byte, regionID, version u
 	if res.Status != LockRangeStatusWait {
 		return res
 	}
-	res.WaitFn = func() LockRangeResult {
+	res.WaitFn = func(ctx context.Context) LockRangeResult {
 		signalChs1 := signalChs
 		var res1 LockRangeResult
 		ticker := time.NewTicker(time.Second * 30)
@@ -301,9 +302,12 @@ func (l *RegionRangeLock) LockRange(startKey, endKey []byte, regionID, version u
 		defer ticker.Stop()
 		for {
 			for _, ch := range signalChs1 {
-				inner:
+			inner:
 				for {
 					select {
+					case <-ctx.Done():
+						log.Info("WaitFn canceled")
+						return LockRangeResult{Status: LockRangeStatusStale}
 					case <-ticker.C:
 						log.Warn("WaitFn waiting too long",
 							zap.Duration("duration", time.Since(startTime)),
@@ -399,6 +403,6 @@ const (
 type LockRangeResult struct {
 	Status       int
 	CheckpointTs uint64
-	WaitFn       func() LockRangeResult
+	WaitFn       func(ctx context.Context) LockRangeResult
 	RetryRanges  []ComparableSpan
 }

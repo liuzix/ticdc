@@ -637,7 +637,7 @@ func (s *eventFeedSession) scheduleRegionRequest(ctx context.Context, sri single
 	res := s.rangeLock.LockRange(sri.span.Start, sri.span.End, sri.verID.GetID(), sri.verID.GetVer())
 
 	if res.Status == regionspan.LockRangeStatusWait {
-		res = res.WaitFn()
+		res = res.WaitFn(ctx)
 	}
 
 	handleResult(res)
@@ -1106,7 +1106,7 @@ func (s *eventFeedSession) receiveFromStream(
 	for {
 		cevent, err := stream.Recv()
 
-		if time.Since(lastPrintStats) > time.Second * 20 {
+		if time.Since(lastPrintStats) > time.Second*20 {
 			pendingRegions.mu.Lock()
 			log.Debug("start printing pending region stats")
 			for regionID, state := range pendingRegions.regionInfoMap {

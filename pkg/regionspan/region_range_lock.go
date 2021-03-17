@@ -20,6 +20,7 @@ import (
 	"math"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/btree"
 	"github.com/pingcap/log"
@@ -292,13 +293,25 @@ func (l *RegionRangeLock) LockRange(startKey, endKey []byte, regionID, version u
 	if res.Status != LockRangeStatusWait {
 		return res
 	}
-
 	res.WaitFn = func() LockRangeResult {
 		signalChs1 := signalChs
 		var res1 LockRangeResult
+		ticker := time.NewTicker(time.Second * 30)
+		startTime := time.Now()
+		defer ticker.Stop()
 		for {
 			for _, ch := range signalChs1 {
-				<-ch
+				inner:
+				for {
+					select {
+					case <-ticker.C:
+						log.Warn("WaitFn waiting too long",
+							zap.Duration("duration", time.Since(startTime)),
+							zap.Uint64("regionID", regionID))
+					case <-ch:
+						break inner
+					}
+				}
 			}
 			res1, signalChs1 = l.tryLockRange(startKey, endKey, regionID, version)
 			if res1.Status != LockRangeStatusWait {

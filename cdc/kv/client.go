@@ -1102,9 +1102,22 @@ func (s *eventFeedSession) receiveFromStream(
 	// Each region has it's own goroutine to handle its messages. `regionStates` stores states of these regions.
 	regionStates := make(map[uint64]*regionFeedState)
 
+	lastPrintStats := time.Now()
 	for {
 		cevent, err := stream.Recv()
 
+		if time.Since(lastPrintStats) > time.Second * 20 {
+			pendingRegions.mu.Lock()
+			log.Debug("start printing pending region stats")
+			for regionID, state := range pendingRegions.regionInfoMap {
+				log.Debug("pending region",
+					zap.Uint64("regionID", regionID),
+					zap.Duration("duration", time.Since(state.startFeedTime)))
+			}
+
+			pendingRegions.mu.Unlock()
+			lastPrintStats = time.Now()
+		}
 		failpoint.Inject("kvClientStreamRecvError", func() {
 			err = errors.New("injected stream recv error")
 		})
@@ -1379,6 +1392,11 @@ func (s *eventFeedSession) singleEventFeed(
 			}
 
 			if !s.isPullerInit.IsInitialized() {
+				if time.Since(startFeedTime) > 30*time.Second {
+					log.Warn("The time cost of initializing is too mush",
+						zap.Duration("timeCost", time.Since(startFeedTime)),
+						zap.Uint64("regionID", regionID))
+				}
 				// Initializing a puller may take a long time, skip resolved lock to save unnecessary overhead.
 				continue
 			}

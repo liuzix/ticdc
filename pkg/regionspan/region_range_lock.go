@@ -302,6 +302,14 @@ func (l *RegionRangeLock) LockRange(startKey, endKey []byte, regionID, version u
 		defer ticker.Stop()
 		for {
 			for _, ch := range signalChs1 {
+
+				select {
+				case <-ctx.Done():
+					log.Info("WaitFn canceled")
+					return LockRangeResult{Status: LockRangeStatusStale}
+				default:
+				}
+
 			inner:
 				for {
 					select {

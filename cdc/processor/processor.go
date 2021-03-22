@@ -500,6 +500,7 @@ func (p *processor) sendError(err error) {
 	if err == nil {
 		return
 	}
+	log.Error("processor received error", zap.Error(err))
 	select {
 	case p.errCh <- err:
 	default:

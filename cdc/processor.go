@@ -993,6 +993,7 @@ func (p *oldProcessor) sorterConsume(
 		return nil
 	}
 
+	/*
 	processRowChangedEvent := func(row *model.PolymorphicEvent) error {
 		events = append(events, row)
 
@@ -1004,6 +1005,7 @@ func (p *oldProcessor) sorterConsume(
 		}
 		return nil
 	}
+	 */
 
 	globalResolvedTsReceiver, err := p.globalResolvedTsNotifier.NewReceiver(1 * time.Second)
 	if err != nil {
@@ -1026,6 +1028,7 @@ func (p *oldProcessor) sorterConsume(
 				continue
 			}
 
+			/*
 			pEvent.SetUpFinishedChan()
 			select {
 			case <-ctx.Done():
@@ -1035,7 +1038,7 @@ func (p *oldProcessor) sorterConsume(
 				return
 			case p.mounter.Input() <- pEvent:
 			}
-
+			 */
 			if pEvent.RawKV != nil && pEvent.RawKV.OpType == model.OpTypeResolved {
 				if pEvent.CRTs == 0 {
 					continue
@@ -1069,6 +1072,7 @@ func (p *oldProcessor) sorterConsume(
 				p.errCh <- errors.New("processor sync resolved injected error")
 				failpoint.Return()
 			})
+			/*
 			err := processRowChangedEvent(pEvent)
 			if err != nil {
 				if errors.Cause(err) != context.Canceled {
@@ -1076,6 +1080,7 @@ func (p *oldProcessor) sorterConsume(
 				}
 				return
 			}
+			*/
 		case <-globalResolvedTsReceiver.C:
 			localResolvedTs := atomic.LoadUint64(&p.localResolvedTs)
 			globalResolvedTs := atomic.LoadUint64(&p.globalResolvedTs)

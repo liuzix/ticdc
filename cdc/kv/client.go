@@ -73,7 +73,7 @@ const (
 // hard code switch
 // true: use kv client v2, which has a region worker for each stream
 // false: use kv client v1, which runs a goroutine for every single region
-var enableKVClientV2 = true
+var enableKVClientV2 = false
 
 type singleRegionInfo struct {
 	verID  tikv.RegionVerID
@@ -539,9 +539,9 @@ func newEventFeedSession(
 		kvStorage:         kvStorage,
 		totalSpan:         totalSpan,
 		eventCh:           eventCh,
-		regionCh:          make(chan singleRegionInfo, 16),
-		errCh:             make(chan regionErrorInfo, 16),
-		requestRangeCh:    make(chan rangeRequestTask, 16),
+		regionCh:          make(chan singleRegionInfo, 32000),
+		errCh:             make(chan regionErrorInfo, 32000),
+		requestRangeCh:    make(chan rangeRequestTask, 32000),
 		rangeLock:         regionspan.NewRegionRangeLock(totalSpan.Start, totalSpan.End, startTs),
 		enableOldValue:    enableOldValue,
 		enableKVClientV2:  enableKVClientV2,
@@ -1115,6 +1115,7 @@ func (s *eventFeedSession) receiveFromStream(
 	captureAddr := util.CaptureAddrFromCtx(ctx)
 	changefeedID := util.ChangefeedIDFromCtx(ctx)
 	metricSendEventBatchResolvedSize := batchResolvedEventSize.WithLabelValues(captureAddr, changefeedID)
+	metricBatchResolvedTsGauge := batchResolvedTsGauge.WithLabelValues(captureAddr, changefeedID, addr)
 
 	// Each region has it's own goroutine to handle its messages. `regionStates` stores states of these regions.
 	regionStates := make(map[uint64]*regionFeedState)
@@ -1191,6 +1192,7 @@ func (s *eventFeedSession) receiveFromStream(
 		}
 		if cevent.ResolvedTs != nil {
 			metricSendEventBatchResolvedSize.Observe(float64(len(cevent.ResolvedTs.Regions)))
+			metricBatchResolvedTsGauge.Set(float64(oracle.ExtractPhysical(cevent.ResolvedTs.Ts)))
 			err = s.sendResolvedTs(ctx, g, cevent.ResolvedTs, regionStates, pendingRegions, addr)
 			if err != nil {
 				return err
@@ -1277,6 +1279,10 @@ func (s *eventFeedSession) sendResolvedTs(
 	pendingRegions *syncRegionFeedStateMap,
 	addr string,
 ) error {
+	if time.Since(oracle.GetTimeFromTS(resolvedTs.Ts)) > 30*time.Second {
+		log.Warn("resolved ts lag too much", zap.Duration("lag", time.Since(oracle.GetTimeFromTS(resolvedTs.Ts))),
+			zap.String("addr", addr))
+	}
 	for _, regionID := range resolvedTs.Regions {
 		state, ok := regionStates[regionID]
 		if ok {

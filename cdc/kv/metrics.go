@@ -82,6 +82,13 @@ var (
 			Name:      "request_count",
 			Help:      "request counter of etcd operation",
 		}, []string{"type", "capture"})
+	batchResolvedTsGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "ticdc",
+			Subsystem: "kvclient",
+			Name:      "batch_resolved_ts_gauge",
+			Help:      "The latest batch resolved ts received",
+		}, []string{"capture", "changefeed", "addr"})
 )
 
 // InitMetrics registers all metrics in the kv package
@@ -95,4 +102,5 @@ func InitMetrics(registry *prometheus.Registry) {
 	registry.MustRegister(clientChannelSize)
 	registry.MustRegister(batchResolvedEventSize)
 	registry.MustRegister(etcdRequestCounter)
+	registry.MustRegister(batchResolvedTsGauge)
 }

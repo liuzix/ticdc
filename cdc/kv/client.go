@@ -1127,14 +1127,21 @@ func (s *eventFeedSession) receiveFromStream(
 		})
 		// TODO: Should we have better way to handle the errors?
 		if err == io.EOF {
+			log.Warn("EOF encountered in stream", zap.String("addr", addr),
+				zap.Uint64("storeID", storeID))
 			for _, state := range regionStates {
+				select {
+				case <-ctx.Done():
+					break
+				case state.regionEventCh <- nil:
+				}
 				close(state.regionEventCh)
 			}
 			return nil
 		}
 		if err != nil {
 			if status.Code(errors.Cause(err)) == codes.Canceled {
-				log.Debug(
+				log.Warn(
 					"receive from stream canceled",
 					zap.String("addr", addr),
 					zap.Uint64("storeID", storeID),
@@ -1331,6 +1338,7 @@ func (s *eventFeedSession) singleEventFeed(
 	lastReceivedEventTime := time.Now()
 	startFeedTime := time.Now()
 	lastResolvedTs := startTs
+	lastResolvedTsUpdated := time.Now()
 	handleResolvedTs := func(resolvedTs uint64) error {
 		if !initialized {
 			return nil
@@ -1342,6 +1350,10 @@ func (s *eventFeedSession) singleEventFeed(
 				zap.Uint64("lastResolvedTs", lastResolvedTs),
 				zap.Uint64("regionID", regionID))
 			return nil
+		}
+
+		if resolvedTs != lastResolvedTs {
+			lastResolvedTsUpdated = time.Now()
 		}
 		// emit a checkpointTs
 		revent := &model.RegionFeedEvent{
@@ -1404,7 +1416,8 @@ func (s *eventFeedSession) singleEventFeed(
 			}
 			currentTimeFromPD := oracle.GetTimeFromTS(version.Ver)
 			sinceLastResolvedTs := currentTimeFromPD.Sub(oracle.GetTimeFromTS(lastResolvedTs))
-			if sinceLastResolvedTs > resolveLockInterval && initialized {
+			sinceLastResolvedTsUpdated := time.Since(lastResolvedTsUpdated)
+			if sinceLastResolvedTsUpdated > time.Second * 30 && initialized {
 				log.Warn("region not receiving resolved event from tikv or resolved ts is not pushing for too long time, try to resolve lock",
 					zap.Uint64("regionID", regionID), zap.Stringer("span", span),
 					zap.Duration("duration", sinceLastResolvedTs),

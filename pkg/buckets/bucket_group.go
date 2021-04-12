@@ -22,13 +22,16 @@ type BucketHandle struct {
 }
 
 type Priority = uint64
+type Quota = uint64
 
 func (bg *BucketGroup) CreateBucket(initPriority Priority) *BucketHandle {
 
 }
 
-func (bg *BucketGroup) returnToken(size uint64) {
+func (bg *BucketGroup) returnQuota(size uint64) {
 
 }
 
+func (bg *BucketGroup) returnBurstQuota(size uint64) {
 
+}

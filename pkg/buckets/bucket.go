@@ -13,49 +13,67 @@
 
 package buckets
 
-import "container/heap"
-import "sync/atomic"
+import (
+	"github.com/pingcap/log"
+	"go.uber.org/zap"
+	"sync"
+	"sync/atomic"
+
+	"github.com/emirpasic/gods/trees/redblacktree"
+)
+
+type bucketID = uint64
 
 type bucket struct {
-	priority Priority
+	ID bucketID
+
+	Priority   Priority
+	Quota      Quota
+	BurstQuota Quota
+
+	bg *bucketGroup
 }
 
-func (b *bucket) getPriority() Priority {
-	return atomic.LoadUint64(&b.priority)
+func (b *bucket) adjustPriority(p Priority) {
+	b.bg.rwLock.Lock()
+	defer b.bg.rwLock.Unlock()
+
+	b.bg.tree.Remove(b.ID)
+
+	oldPriority := atomic.SwapUint64(&b.Priority, p)
+	if oldPriority > p {
+		log.Panic("priority regressed",
+			zap.Uint64("old", oldPriority),
+			zap.Uint64("new", p))
+	}
+
+	b.bg.tree.Put(b, struct{}{})
 }
 
-func (b *bucket) setPriority(p Priority) {
-	atomic.StoreUint64(&b.priority, p)
+func (b *bucket)
+
+type bucketGroup struct {
+	rwLock sync.RWMutex
+	tree   *redblacktree.Tree
 }
 
-type bucketHeap struct {
-	arr []*bucket
+func newBucketGroup() *bucketGroup {
+	comparator := func(a, b interface{}) int {
+		first := a.(*bucket)
+		second := b.(*bucket)
+
+		p1 := atomic.LoadUint64(&first.Priority)
+		p2 := atomic.LoadUint64(&second.Priority)
+
+		// We don't perform a subtraction to type conversion and overflow
+		if p1 < p2 {
+			return -1
+		} else if p1 == p2 {
+			return 0
+		} else {
+			return 1
+		}
+	}
+
+	return &bucketGroup{tree: redblacktree.NewWith(comparator)}
 }
-
-func (h *bucketHeap) Len() int {
-	return len(b.arr)
-}
-
-func (h *bucketHeap) Less(i, j int) bool {
-	b1 := h.arr[i]
-	b2 := h.arr[j]
-
-	return b1.getPriority() < b2.getPriority()
-}
-
-func (h *bucketHeap) Swap(i, j int) {
-	panic("implement me")
-}
-
-func (h *bucketHeap) Push(x interface{}) {
-	panic("implement me")
-}
-
-func (h *bucketHeap) Pop() interface{} {
-	panic("implement me")
-}
-
-
-
-
-

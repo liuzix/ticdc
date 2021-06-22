@@ -205,3 +205,19 @@ func ZapFieldCapture(ctx Context) zap.Field {
 func ZapFieldChangefeed(ctx Context) zap.Field {
 	return zap.String("changefeed", ctx.ChangefeedVars().ID)
 }
+
+type asyncKeyType int
+
+var asyncKey asyncKeyType
+
+func SetAsync(ctx Context) Context {
+	stdCtx := context.WithValue(ctx, asyncKey, true)
+	return WithStd(ctx, stdCtx)
+}
+
+func IsAsync(ctx Context) bool {
+	if val, ok := ctx.Value(asyncKey).(bool); ok {
+		return val
+	}
+	return false
+}

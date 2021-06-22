@@ -235,4 +235,8 @@ var (
 
 	// retry error
 	ErrReachMaxTry = errors.Normalize("reach maximum try: %d", errors.RFCCodeText("CDC:ErrReachMaxTry"))
+
+	// async operation results
+	ErrWouldBlock  = errors.Normalize("this operation would have blocked if called with an synchronous context. Report a bug if seen externally.", errors.RFCCodeText("CDC:ErrWouldBlock"))
+	ErrQueueClosed = errors.Normalize("attempting to operation on a closed queue. Report a bug if seen externally.", errors.RFCCodeText("CDC:ErrQueueClosed"))
 )

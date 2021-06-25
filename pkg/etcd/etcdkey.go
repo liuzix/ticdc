@@ -14,7 +14,9 @@
 package etcd
 
 import (
+	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	cerror "github.com/pingcap/ticdc/pkg/errors"
@@ -28,6 +30,7 @@ const (
 	taskKey         = "/task"
 	taskWorkloadKey = taskKey + "/workload"
 	taskStatusKey   = taskKey + "/status"
+	taskStatusSplitKey = taskKey + "/sub-status"
 	taskPositionKey = taskKey + "/position"
 
 	changefeedInfoKey = "/changefeed/info"
@@ -47,6 +50,7 @@ const (
 	CDCKeyTypeTaskPosition
 	CDCKeyTypeTaskStatus
 	CDCKeyTypeTaskWorkload
+	CDCKeyTypeTaskStatusSplit
 )
 
 // CDCKey represents a etcd key which is defined by TiCDC
@@ -78,6 +82,7 @@ type CDCKey struct {
 	ChangefeedID string
 	CaptureID    string
 	OwnerLeaseID string
+	SplitID      int64
 }
 
 // Parse parses the given etcd key
@@ -120,6 +125,22 @@ func (k *CDCKey) Parse(key string) error {
 		k.CaptureID = splitKey[0]
 		k.ChangefeedID = splitKey[1]
 		k.OwnerLeaseID = ""
+	case strings.HasPrefix(key, taskStatusSplitKey):
+		splitKey := strings.SplitN(key[len(taskStatusKey)+1:], "/", 3)
+		if len(splitKey) != 3 {
+			return cerror.ErrInvalidEtcdKey.GenWithStackByArgs(key)
+		}
+		k.Tp = CDCKeyTypeTaskStatus
+		k.CaptureID = splitKey[0]
+		k.ChangefeedID = splitKey[1]
+
+		id, err := strconv.Atoi(splitKey[2])
+		if err != nil {
+			return cerror.WrapError(cerror.ErrInvalidEtcdKey, err)
+		}
+		k.SplitID = int64(id)
+
+		k.OwnerLeaseID = ""
 	case strings.HasPrefix(key, taskPositionKey):
 		splitKey := strings.SplitN(key[len(taskPositionKey)+1:], "/", 2)
 		if len(splitKey) != 2 {
@@ -161,6 +182,8 @@ func (k *CDCKey) String() string {
 		return etcdKeyBase + taskPositionKey + "/" + k.CaptureID + "/" + k.ChangefeedID
 	case CDCKeyTypeTaskStatus:
 		return etcdKeyBase + taskStatusKey + "/" + k.CaptureID + "/" + k.ChangefeedID
+	case CDCKeyTypeTaskStatusSplit:
+		return etcdKeyBase + taskStatusSplitKey + "/" + k.CaptureID + "/" + k.ChangefeedID + "/" + fmt.Sprintf("%d", k.SplitID)
 	case CDCKeyTypeTaskWorkload:
 		return etcdKeyBase + taskWorkloadKey + "/" + k.CaptureID + "/" + k.ChangefeedID
 	}

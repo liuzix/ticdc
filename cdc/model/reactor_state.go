@@ -122,6 +122,16 @@ type ChangefeedReactorState struct {
 	skipPatchesInThisTick bool
 }
 
+const (
+	taskStatusSplitSize = 1000
+)
+
+type taskStatusSplit struct {
+	Tables       map[TableID]*TableReplicaInfo `json:"tables"`
+	Operation    map[TableID]*TableOperation   `json:"operation"`
+	SplitID      int64                         `json:"-"`
+}
+
 // NewChangefeedReactorState creates a new changefeed reactor state
 func NewChangefeedReactorState(id ChangeFeedID) *ChangefeedReactorState {
 	return &ChangefeedReactorState{
@@ -332,18 +342,20 @@ func (s *ChangefeedReactorState) PatchTaskPosition(captureID CaptureID, fn func(
 
 // PatchTaskStatus appends a DataPatch which can modify the TaskStatus of a specified capture
 func (s *ChangefeedReactorState) PatchTaskStatus(captureID CaptureID, fn func(*TaskStatus) (*TaskStatus, bool, error)) {
-	key := &etcd.CDCKey{
-		Tp:           etcd.CDCKeyTypeTaskStatus,
-		CaptureID:    captureID,
-		ChangefeedID: s.ID,
-	}
-	s.patchAny(key.String(), taskStatusTPI, func(e interface{}) (interface{}, bool, error) {
-		// e == nil means that the key is not exist before this patch
-		if e == nil {
-			return fn(nil)
+	/*
+		key := &etcd.CDCKey{
+			Tp:           etcd.CDCKeyTypeTaskStatus,
+			CaptureID:    captureID,
+			ChangefeedID: s.ID,
 		}
-		return fn(e.(*TaskStatus))
-	})
+		s.patchAny(key.String(), taskStatusTPI, func(e interface{}) (interface{}, bool, error) {
+			// e == nil means that the key is not exist before this patch
+			if e == nil {
+				return fn(nil)
+			}
+			return fn(e.(*TaskStatus))
+		})
+	*/
 }
 
 // PatchTaskWorkload appends a DataPatch which can modify the TaskWorkload of a specified capture
@@ -404,4 +416,54 @@ func (s *ChangefeedReactorState) patchAny(key string, tpi interface{}, fn func(i
 		},
 	}
 	s.pendingPatches = append(s.pendingPatches, patch)
+}
+
+func splitTaskStatus(taskStatus *TaskStatus) []*taskStatusSplit {
+	splitMap := make(map[int64]*taskStatusSplit)
+
+	for tableID, tableStatus := range taskStatus.Tables {
+		splitID := tableID / taskStatusSplitSize
+		split := splitMap[splitID]
+		if split == nil {
+			split = new(taskStatusSplit)
+			split.SplitID = splitID
+			split.Tables = make(map[TableID]*TableReplicaInfo)
+		}
+		split.Tables[tableID] = tableStatus
+	}
+
+	for tableID, operation := range taskStatus.Operation {
+		splitID := tableID / taskStatusSplitSize
+		split := splitMap[splitID]
+		if split == nil {
+			split = new(taskStatusSplit)
+			split.SplitID = splitID
+			split.Operation = make(map[TableID]*TableOperation)
+		}
+		split.Operation[tableID] = operation
+	}
+
+	var ret []*taskStatusSplit
+	for _, split := range splitMap {
+		ret = append(ret, split)
+	}
+	return ret
+}
+
+func fillTaskStatusFromSplit(taskStatus *TaskStatus, split *taskStatusSplit) {
+	if taskStatus.Tables == nil {
+		taskStatus.Tables = make(map[TableID]*TableReplicaInfo)
+	}
+
+	if taskStatus.Operation == nil {
+		taskStatus.Operation = make(map[TableID]*TableOperation)
+	}
+
+	for tableID, tableStatus := range split.Tables {
+		taskStatus.Tables[tableID] = tableStatus
+	}
+
+	for tableID, operation := range split.Operation {
+		taskStatus.Operation[tableID] = operation
+	}
 }

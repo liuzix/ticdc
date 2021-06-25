@@ -214,12 +214,12 @@ func (i *TableReplicaInfo) Clone() *TableReplicaInfo {
 // TaskStatus records the task information of a capture
 type TaskStatus struct {
 	// Table information list, containing tables that processor should process, updated by ownrer, processor is read only.
-	Tables       map[TableID]*TableReplicaInfo `json:"tables"`
-	Operation    map[TableID]*TableOperation   `json:"operation"`
+	Tables       map[TableID]*TableReplicaInfo `json:"-"`
+	Operation    map[TableID]*TableOperation   `json:"-"`
 	AdminJobType AdminJobType                  `json:"admin-job-type"`
-	ModRevision  int64                         `json:"-"`
+	ModRevision  int64                         `json:"-"` // Deprecated: ModRevision is deprecated
 	// true means Operation record has been changed
-	Dirty bool `json:"-"`
+	Dirty bool `json:"-"` // Deprecated: Dirty is deprecated
 }
 
 // String implements fmt.Stringer interface.

@@ -43,7 +43,6 @@ func runMerger(ctx context.Context, numSorters int, in <-chan *flushTask, out ch
 	metricSorterEventCount := sorterEventCount.MustCurryWith(map[string]string{
 		"capture":    captureAddr,
 		"changefeed": changefeedID,
-		"table":      tableName,
 	})
 	metricSorterResolvedTsGauge := sorterResolvedTsGauge.WithLabelValues(captureAddr, changefeedID, tableName)
 	metricSorterMergerStartTsGauge := sorterMergerStartTsGauge.WithLabelValues(captureAddr, changefeedID, tableName)

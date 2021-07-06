@@ -23,14 +23,14 @@ var (
 		Subsystem: "sorter",
 		Name:      "consume_count",
 		Help:      "the number of events consumed by the sorter",
-	}, []string{"capture", "changefeed", "table", "type"})
+	}, []string{"capture", "changefeed", "type"})
 
 	sorterEventCount = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "ticdc",
 		Subsystem: "sorter",
 		Name:      "event_count",
 		Help:      "the number of events output by the sorter",
-	}, []string{"capture", "changefeed", "table", "type"})
+	}, []string{"capture", "changefeed", "type"})
 
 	sorterResolvedTsGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ticdc",
@@ -88,11 +88,11 @@ var (
 func InitMetrics(registry *prometheus.Registry) {
 	registry.MustRegister(sorterConsumeCount)
 	registry.MustRegister(sorterEventCount)
-	registry.MustRegister(sorterResolvedTsGauge)
-	registry.MustRegister(sorterMergerStartTsGauge)
+	// registry.MustRegister(sorterResolvedTsGauge)
+	// registry.MustRegister(sorterMergerStartTsGauge)
 	registry.MustRegister(sorterInMemoryDataSizeGauge)
 	registry.MustRegister(sorterOnDiskDataSizeGauge)
 	registry.MustRegister(sorterOpenFileCountGauge)
-	registry.MustRegister(sorterFlushCountHistogram)
-	registry.MustRegister(sorterMergeCountHistogram)
+	// registry.MustRegister(sorterFlushCountHistogram)
+	// registry.MustRegister(sorterMergeCountHistogram)
 }

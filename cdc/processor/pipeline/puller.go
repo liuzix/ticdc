@@ -15,6 +15,7 @@ package pipeline
 
 import (
 	"context"
+	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/ticdc/cdc/model"
@@ -76,6 +77,7 @@ func (n *pullerNode) Init(ctx pipeline.NodeContext) error {
 		return nil
 	})
 	n.wg.Go(func() error {
+		lastUpdatedMetrics := time.Now()
 		for {
 			select {
 			case <-ctxC.Done():
@@ -84,7 +86,8 @@ func (n *pullerNode) Init(ctx pipeline.NodeContext) error {
 				if rawKV == nil {
 					continue
 				}
-				if rawKV.OpType == model.OpTypeResolved {
+				if rawKV.OpType == model.OpTypeResolved && time.Since(lastUpdatedMetrics) > time.Second*15 {
+					lastUpdatedMetrics = time.Now()
 					metricTableResolvedTsGauge.Set(float64(oracle.ExtractPhysical(rawKV.CRTs)))
 				}
 				pEvent := model.NewPolymorphicEvent(rawKV)

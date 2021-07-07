@@ -22,6 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/log"
@@ -109,9 +111,13 @@ func runMerger(ctx context.Context, numSorters int, in <-chan *flushTask, out ch
 	var lastEvent *model.PolymorphicEvent
 	var lastTask *flushTask
 
+	rl := rate.NewLimiter(0.2, 1)
 	sendResolvedEvent := func(ts uint64) error {
 		lastOutputResolvedTs = ts
 		if ts == 0 {
+			return nil
+		}
+		if !rl.Allow() {
 			return nil
 		}
 		select {

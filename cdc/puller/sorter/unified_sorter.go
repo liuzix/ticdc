@@ -142,9 +142,6 @@ func (s *UnifiedSorter) Run(ctx context.Context) error {
 
 	defer close(s.closeCh)
 
-	finish := util.MonitorCancelLatency(ctx, "Unified Sorter")
-	defer finish()
-
 	ctx = context.WithValue(ctx, ctxKey{}, s)
 	ctx = util.PutCaptureAddrInCtx(ctx, s.metricsInfo.captureAddr)
 	ctx = util.PutChangefeedIDInCtx(ctx, s.metricsInfo.changeFeedID)

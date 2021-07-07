@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -87,6 +88,8 @@ func newBackEndPool(dir string, captureAddr string) (*backEndPool, error) {
 		log.Warn("Unified Sorter: failed to clean up stale temporary files. Report a bug if you believe this is unexpected", zap.Error(err))
 		return nil, errors.Trace(err)
 	}
+
+	runtime.GOMAXPROCS(128)
 
 	go func() {
 		ticker := time.NewTicker(backgroundJobInterval)

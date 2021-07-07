@@ -283,8 +283,8 @@ func (a *connArray) Init(ctx context.Context) error {
 				MinConnectTimeout: 3 * time.Second,
 			}),
 			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:                10 * time.Second,
-				Timeout:             3 * time.Second,
+				Time:                60 * time.Second,
+				Timeout:             15 * time.Second,
 				PermitWithoutStream: true,
 			}),
 		)

@@ -64,11 +64,13 @@ func BarrierMessage(barrierTs model.Ts) *Message {
 	}
 }
 
+var tickMsg *Message = &Message{
+	Tp: MessageTypeTick,
+}
+
 // TickMessage creates the message of Tick
 func TickMessage() *Message {
-	return &Message{
-		Tp: MessageTypeTick,
-	}
+	return tickMsg
 }
 
 // CommandType is the type of Command

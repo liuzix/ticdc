@@ -455,7 +455,7 @@ func runMerger(ctx context.Context, numSorters int, in <-chan *flushTask, out ch
 	})
 
 	errg.Go(func() error {
-		resolvedTsReceiver, err := resolvedTsNotifier.NewReceiver(time.Second * 1)
+		resolvedTsReceiver, err := resolvedTsNotifier.NewReceiver(0)
 		if err != nil {
 			if cerrors.ErrOperateOnClosedNotifier.Equal(err) {
 				// This won't happen unless `resolvedTsNotifier` has been closed, which is

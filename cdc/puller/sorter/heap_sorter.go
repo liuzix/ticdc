@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	flushRateLimitPerSecond = 10
+	flushRateLimitPerSecond = 1
 	sortHeapCapacity        = 32
 	sortHeapInputChSize     = 1024
 )
